@@ -38,8 +38,9 @@ https://unsplash.com/license
 
 apps/learning-management/src/seed/content.ts references Unsplash photographs by URL for the
 demo catalogue's course covers. They are hot-linked, not redistributed here, and
-are used under the Unsplash License. Remove the demo data (Settings -> Data ->
-Remove demo data) and no Unsplash content remains in your workspace.
+are used under the Unsplash License. They reach your workspace only if you load the
+sample data (Settings -> Data -> Load sample data), and Remove demo data on the same
+page takes them out again.
 --------------------------------------------------------------------------------
 Demo document, W3C Test Suite
 https://www.w3.org

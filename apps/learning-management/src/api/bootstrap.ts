@@ -2,11 +2,12 @@ import { z } from 'zod';
 import { createEndpoint } from 'zitejs/backend';
 import { zite } from 'zitejs/db';
 import { toCourse, toPath } from '@project/shared/server/courses';
+import { ensureDefaultTemplates } from '@project/shared/server/email';
 import { canEditCourse, getActor, isStaff } from '@project/shared/server/people';
 import { getSettings, rememberAdminUrl } from '@project/shared/server/settings';
 import { bool, iso, num, ref, str } from '@project/shared/server/sql';
 import { isConfigured } from '../server/ai';
-import { demoCounts } from '../server/demo';
+import { canLoadSample, demoCounts } from '../server/demo';
 
 /**
  * Everything the admin app renders names from, loaded once and indexed on the
@@ -16,12 +17,15 @@ import { demoCounts } from '../server/demo';
  * Learners (and the long tail of people generally) are NOT here — an
  * organization can have thousands. Lists carry names in their rows, and the
  * person pickers search on demand.
+ *
+ * A new workspace starts empty. Its first load creates the settings row, makes
+ * the first person in an Admin and adds the default email templates; the
+ * sample academy only arrives if an admin loads it from Settings → Data.
  */
 
 const counts = z.object({ enrolled: z.number(), notStarted: z.number(), inProgress: z.number(), completed: z.number(), overdue: z.number() });
 
 const Output = z.object({
-    seeded: z.boolean(),
     access: z.enum(['staff', 'learner']),
     me: z.object({ id: z.string(), name: z.string(), email: z.string(), role: z.enum(['Admin', 'Instructor', 'Learner']), color: z.string(), avatarUrl: z.string().nullable() }),
     settings: z.object({
@@ -70,8 +74,10 @@ const Output = z.object({
     views: z.array(z.object({ id: z.string(), name: z.string(), ownerId: z.string().nullable(), scope: z.enum(['Personal', 'Shared']), page: z.string(), config: z.string(), position: z.number() })),
     counts: z.object({ inboxUnread: z.number(), toGrade: z.number(), openQuestions: z.number(), overdue: z.number(), expiringCertificates: z.number(), upcomingSessions: z.number() }),
     features: z.object({ ai: z.boolean() }),
-    /** Admins only: what's left of the demo, or null once it's gone. */
+    /** Admins only: what's left of the demo while it's loaded, otherwise null. */
     demo: z.object({ courses: z.number(), people: z.number(), enrollments: z.number() }).nullable(),
+    /** Admins only: whether the sample academy can be loaded (see `canLoadSample`). */
+    canLoadSample: z.boolean(),
 });
 
 export default createEndpoint({
@@ -111,14 +117,15 @@ export default createEndpoint({
 
     const { rows: meRows } = await zite.sql({ query: `SELECT "color", "avatarUrl" FROM "People" WHERE id::text = $1`, params: [actor.id] });
     const me = { id: actor.id, name: actor.name, email: actor.email, role: actor.role, color: str(meRows[0]?.color) || '#2f6b55', avatarUrl: ref(meRows[0]?.avatarUrl) };
-    const empty = { staff: [], peopleCount: { total: 0, active: 0, invited: 0, deactivated: 0 }, groups: [], categories: [], courses: [], paths: [], templates: [], views: [], counts: { inboxUnread: 0, toGrade: 0, openQuestions: 0, overdue: 0, expiringCertificates: 0, upcomingSessions: 0 }, features: { ai: false }, demo: null };
+    const empty = { staff: [], peopleCount: { total: 0, active: 0, invited: 0, deactivated: 0 }, groups: [], categories: [], courses: [], paths: [], templates: [], views: [], counts: { inboxUnread: 0, toGrade: 0, openQuestions: 0, overdue: 0, expiringCertificates: 0, upcomingSessions: 0 }, features: { ai: false }, demo: null, canLoadSample: false };
 
     // Learners who open the admin app see a friendly pointer to the learner app, nothing else.
     if (!isStaff(actor)) {
-      return { seeded: Boolean(settings.seededAt), access: 'learner' as const, me, settings: baseSettings, ...empty };
+      return { access: 'learner' as const, me, settings: baseSettings, ...empty };
     }
 
-    const [staffRes, peopleRes, groupsRes, categoriesRes, coursesRes, lessonCountRes, courseCountsRes, pathsRes, pathCoursesRes, pathCountsRes, templatesRes, viewsRes, countsRes] = await Promise.all([
+    const templatesQuery = { query: `SELECT * FROM "EmailTemplates" ORDER BY COALESCE("position", 0) ASC, created_at ASC`, params: [] };
+    const [staffRes, peopleRes, groupsRes, categoriesRes, coursesRes, lessonCountRes, courseCountsRes, pathsRes, pathCoursesRes, pathCountsRes, firstTemplatesRes, viewsRes, countsRes] = await Promise.all([
       zite.sql({ query: `SELECT id, "name", "email", "role", "status", "color", "avatarUrl", "title", "lastSeenAt" FROM "People" WHERE "role" IN ('Admin', 'Instructor') ORDER BY LOWER("name") ASC`, params: [] }),
       zite.sql({
         query: `SELECT COUNT(*) AS "total", COUNT(*) FILTER (WHERE COALESCE("status", 'Active') = 'Active') AS "active", COUNT(*) FILTER (WHERE "status" = 'Invited') AS "invited", COUNT(*) FILTER (WHERE "status" = 'Deactivated') AS "deactivated" FROM "People"`,
@@ -161,7 +168,7 @@ export default createEndpoint({
                 GROUP BY "pathId"`,
         params: [],
       }),
-      zite.sql({ query: `SELECT * FROM "EmailTemplates" ORDER BY COALESCE("position", 0) ASC, created_at ASC`, params: [] }),
+      zite.sql(templatesQuery),
       zite.sql({ query: `SELECT * FROM "Views" WHERE "scope" = 'Shared' OR "ownerId" = $1 ORDER BY COALESCE("position", 0) ASC, created_at ASC`, params: [actor.id] }),
       zite.sql({
         query: `
@@ -180,6 +187,9 @@ export default createEndpoint({
       }),
     ]);
 
+    // A new workspace gets its default emails on the first staff load.
+    const templatesRes = !firstTemplatesRes.rows.length && (await ensureDefaultTemplates()) ? await zite.sql(templatesQuery) : firstTemplatesRes;
+
     const lessonCounts = new Map(lessonCountRes.rows.map(r => [String(r.courseId), num(r.lessonTotal)]));
     const toCounts = (r: Record<string, unknown> | undefined) => ({
       enrolled: num(r?.enrolledTotal),
@@ -195,8 +205,8 @@ export default createEndpoint({
     const pc = peopleRes.rows[0] ?? {};
     const c = countsRes.rows[0] ?? {};
 
+    const isAdmin = actor.role === 'Admin';
     return {
-      seeded: Boolean(settings.seededAt) || coursesRes.rows.length > 0,
       access: 'staff' as const,
       me,
       settings: baseSettings,
@@ -301,7 +311,8 @@ export default createEndpoint({
         upcomingSessions: num(c.upcomingSessions),
       },
       features: { ai: isConfigured() },
-      demo: actor.role === 'Admin' ? await demoCounts(settings) : null,
+      demo: isAdmin ? await demoCounts(settings) : null,
+      canLoadSample: isAdmin && !coursesRes.rows.length && !pathsRes.rows.length ? await canLoadSample(settings) : false,
     };
   },
 });

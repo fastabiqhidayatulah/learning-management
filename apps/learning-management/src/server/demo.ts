@@ -4,14 +4,21 @@ import { num, withRetry } from '@project/shared/server/sql';
 import { DEMO_ORG } from '../seed/org';
 
 /**
- * The demo academy, how to recognise it, and how to take it away again.
+ * The sample academy, how to recognise it, and how to take it away again.
  *
- * Demo rows are the ones the seed created: everything inserted within a few
- * minutes of `seededAt` (the seed takes seconds). Business timestamps like
- * `enrolledAt` are backdated by the seed, but the system `created_at` is the
- * real insert time, so it's the reliable marker. Seeded people all use
- * reserved example domains, so a person is only demo when both the window and
- * the address say so — the admin who installed it is never removed.
+ * Nothing loads it on its own. An admin loads it from Settings → Data while
+ * the workspace has no courses, learning paths or live sessions, and removes it
+ * from the same page.
+ *
+ * Demo rows are the ones the seed created: everything inserted from just
+ * before `seededAt` until a few minutes after it (the seed takes seconds).
+ * Business timestamps like `enrolledAt` are backdated by the seed, but the
+ * system `created_at` is the real insert time, so it's the reliable marker.
+ * The window has a lower bound because the sample can go into a workspace
+ * that is already partly set up: people, groups and categories created before
+ * it stay. Seeded people all use reserved example domains, so a person is only
+ * demo when both the window and the address say so, and the admin who loaded
+ * it is never removed.
  */
 
 /**
@@ -27,6 +34,16 @@ function windowMinutes() {
 
 export const DEMO_WINDOW = `INTERVAL '${windowMinutes()} minutes'`;
 
+/**
+ * "This row was created by the seed", for a query whose `$1` is `seededAt`.
+ * The window opens a minute early to cover clock skew between the endpoint,
+ * which stamps `seededAt`, and the database, which stamps `created_at`.
+ */
+export const inDemoWindow = (alias = '') => {
+  const col = `${alias ? `${alias}.` : ''}created_at`;
+  return `(${col} >= $1::timestamptz - INTERVAL '1 minute' AND ${col} <= $1::timestamptz + ${DEMO_WINDOW})`;
+};
+
 /** Work per removal call. The harness can shrink it (DEMO_BUDGET_MS) to exercise resuming across calls. */
 function budgetDefault() {
   const raw = Number(typeof process !== 'undefined' ? process.env?.DEMO_BUDGET_MS : undefined);
@@ -35,43 +52,79 @@ function budgetDefault() {
 export const EXAMPLE_EMAIL = `'@([a-z0-9-]+\\.)*example\\.(org|com|net)$'`;
 
 /**
- * What `seededAt` becomes once the demo is removed.
- *
- * Not null: the admin app seeds a fresh install whenever bootstrap reports
- * `seeded: false` (no `seededAt` and no courses), and an organization that has
- * just removed the demo — and not yet built a course — looks exactly like a
- * fresh install. A far-past timestamp keeps "this workspace was set up" true,
- * matches no rows in the demo window, and is recognisably not a real seeding
- * time (nothing was seeded in 2000). Not the Unix epoch itself, because zero
- * is too easily read as "unset" somewhere along the way.
+ * Whether the sample is in the workspace. `seededAt` is when it was loaded,
+ * and removing it clears the field. Earlier versions wrote 2000-01-01 there
+ * instead of clearing it, so anything before 2001 also means "not loaded".
  */
-export const DEMO_REMOVED_MARKER = '2000-01-01T00:00:00.000Z';
+export const sampleLoaded = (settings: Pick<OrgSettings, 'seededAt'>) => Boolean(settings.seededAt) && Date.parse(settings.seededAt!) >= Date.parse('2001-01-01T00:00:00.000Z');
 
-export const demoRemoved = (settings: Pick<OrgSettings, 'seededAt'>) => !settings.seededAt || Date.parse(settings.seededAt) < Date.parse('2001-01-01T00:00:00.000Z');
+/**
+ * Courses, learning paths and live sessions are what an organization builds
+ * its training from, so any one of them means the workspace is in real use.
+ * People, groups, categories and email templates don't count: setting those
+ * up first and then loading the sample to look around is fine, and they
+ * survive its removal.
+ */
+export async function hasRealContent(): Promise<boolean> {
+  // Counts rather than EXISTS: a number parses the same whatever the driver returns, and this gates writing into a workspace.
+  const { rows } = await zite.sql({
+    query: `SELECT (SELECT COUNT(*) FROM "Courses") + (SELECT COUNT(*) FROM "Paths") + (SELECT COUNT(*) FROM "Sessions") AS "inUse"`,
+    params: [],
+  });
+  return num(rows[0]?.inUse) > 0;
+}
+
+/** The sample can be loaded while it isn't loaded already and nothing real has been built yet. */
+export async function canLoadSample(settings: Pick<OrgSettings, 'seededAt'>): Promise<boolean> {
+  return !sampleLoaded(settings) && !(await hasRealContent());
+}
+
+/**
+ * The organization details the sample fills in, and what each one reads when
+ * nobody has set it. Loading writes the demo's value only over the default,
+ * and removal puts the default back only where the demo's value is still
+ * there, so anything an admin typed survives both.
+ */
+export const DEMO_ORG_FIELDS: Array<{ key: keyof typeof DEMO_ORG; unset: string | null; label: string }> = [
+  { key: 'organizationName', unset: DEFAULTS.organizationName, label: 'Organization name' },
+  { key: 'academyName', unset: DEFAULTS.academyName, label: 'Academy name' },
+  { key: 'academyHeadline', unset: DEFAULTS.academyHeadline, label: 'Academy headline' },
+  { key: 'academyIntro', unset: DEFAULTS.academyIntro, label: 'Academy introduction' },
+  { key: 'brandColor', unset: DEFAULT_BRAND, label: 'Brand colour' },
+  { key: 'supportEmail', unset: null, label: 'Support email' },
+  { key: 'websiteUrl', unset: null, label: 'Website' },
+  { key: 'emailSignature', unset: '', label: 'Email signature' },
+  { key: 'certificateSignatory', unset: '', label: 'Certificate signatory' },
+  { key: 'certificateSignatoryTitle', unset: '', label: 'Signatory title' },
+  { key: 'timezone', unset: DEFAULTS.timezone, label: 'Time zone' },
+];
+
+/** The job title and hire date the seed gives the admin who loads it, so the story has a COO. */
+export const SEED_ADMIN = { title: 'Chief Operating Officer', hireDaysAgo: 2600 };
+
+/** The hire date the seed gave that admin, as a calendar day. */
+export const seedAdminHireDate = (seededAt: string) => new Date(Date.parse(seededAt) - SEED_ADMIN.hireDaysAgo * 86_400_000).toISOString().slice(0, 10);
 
 export type DemoCounts = { courses: number; people: number; enrollments: number };
 
+/** What's left of the sample, or null when it isn't loaded. Zeros are possible (someone deleted it by hand), and still mean "loaded": removal finishes the job. */
 export async function demoCounts(settings: OrgSettings): Promise<DemoCounts | null> {
-  if (demoRemoved(settings)) return null;
+  if (!sampleLoaded(settings)) return null;
   const { rows } = await zite.sql({
     query: `
       SELECT
-        (SELECT COUNT(*) FROM "Courses" WHERE created_at <= $1::timestamptz + ${DEMO_WINDOW}) AS "courseTotal",
-        (SELECT COUNT(*) FROM "People" WHERE created_at <= $1::timestamptz + ${DEMO_WINDOW} AND LOWER("email") ~ ${EXAMPLE_EMAIL}) AS "peopleTotal",
-        (SELECT COUNT(*) FROM "Enrollments" WHERE created_at <= $1::timestamptz + ${DEMO_WINDOW}) AS "enrollmentTotal"`,
+        (SELECT COUNT(*) FROM "Courses" WHERE ${inDemoWindow()}) AS "courseTotal",
+        (SELECT COUNT(*) FROM "People" WHERE ${inDemoWindow()} AND LOWER("email") ~ ${EXAMPLE_EMAIL}) AS "peopleTotal",
+        (SELECT COUNT(*) FROM "Enrollments" WHERE ${inDemoWindow()}) AS "enrollmentTotal"`,
     params: [settings.seededAt],
   });
   const r = rows[0] ?? {};
-  const counts = { courses: num(r.courseTotal), people: num(r.peopleTotal), enrollments: num(r.enrollmentTotal) };
-  return counts.courses + counts.people + counts.enrollments > 0 ? counts : null;
+  return { courses: num(r.courseTotal), people: num(r.peopleTotal), enrollments: num(r.enrollmentTotal) };
 }
 
 // ---------------------------------------------------------------------------
 // Removal
 // ---------------------------------------------------------------------------
-
-/** The title the seed gives the installing admin, so the story has a COO. */
-const SEED_ADMIN_TITLE = 'Chief Operating Officer';
 
 export type DemoTable =
   | 'notifications' | 'activity' | 'views' | 'lessonProgress' | 'quizAttempts' | 'submissions' | 'certificates' | 'registrations' | 'comments'
@@ -114,11 +167,11 @@ async function ids(query: string, params: unknown[]): Promise<string[]> {
 const unique = (...lists: string[][]) => [...new Set(lists.flat())];
 
 /**
- * Remove the demo academy. Anything created since the seed stays, except rows
- * that hang off a demo course, path, person, session, group or enrollment —
- * those would be orphaned, so they go too.
+ * Remove the demo academy. Anything created before the seed or since it
+ * stays, except rows that hang off a demo course, path, person, session, group
+ * or enrollment: those would be orphaned, so they go too.
  *
- * Children are deleted first and parents last, and `seededAt` is replaced
+ * Children are deleted first and parents last, and `seededAt` is cleared
  * only at the very end, so an interrupted run leaves nothing dangling and
  * simply finishes when run again. A dry run performs every lookup and returns
  * the counts without writing anything.
@@ -133,9 +186,9 @@ export async function removeDemoData(actorId: string, { dryRun = false, budgetMs
   const deadline = Date.now() + budgetMs;
   const settings = await getSettings();
   const empty: DemoRemoval = { dryRun, done: true, removed: 0, tables: {}, detached: 0, reset: [] };
-  if (demoRemoved(settings)) return empty;
-  const at = settings.seededAt;
-  const inWindow = (alias = '') => `${alias ? `${alias}.` : ''}created_at <= $1::timestamptz + ${DEMO_WINDOW}`;
+  if (!sampleLoaded(settings)) return empty;
+  const at = settings.seededAt!;
+  const inWindow = inDemoWindow;
 
   // ── What counts as demo ───────────────────────────────────────────────
   // Postgres refuses a bound parameter a query never references, so each lookup passes exactly what it uses.
@@ -239,28 +292,20 @@ export async function removeDemoData(actorId: string, { dryRun = false, budgetMs
   // ── Organization details still showing the demo's ────────────────────
   const reset: Record<string, string | null> = {};
   const resetLabels: string[] = [];
-  const resetIf = (key: keyof typeof DEMO_ORG, current: string | null, to: string | null, label: string) => {
-    if (current === DEMO_ORG[key]) {
-      reset[key] = to;
-      resetLabels.push(label);
+  for (const f of DEMO_ORG_FIELDS) {
+    if (settings[f.key] === DEMO_ORG[f.key]) {
+      reset[f.key] = f.unset;
+      resetLabels.push(f.label);
     }
-  };
-  resetIf('organizationName', settings.organizationName, DEFAULTS.organizationName, 'Organization name');
-  resetIf('academyName', settings.academyName, DEFAULTS.academyName, 'Academy name');
-  resetIf('academyHeadline', settings.academyHeadline, DEFAULTS.academyHeadline, 'Academy headline');
-  resetIf('academyIntro', settings.academyIntro, DEFAULTS.academyIntro, 'Academy introduction');
-  resetIf('brandColor', settings.brandColor, DEFAULT_BRAND, 'Brand colour');
-  resetIf('supportEmail', settings.supportEmail, null, 'Support email');
-  resetIf('websiteUrl', settings.websiteUrl, null, 'Website');
-  resetIf('emailSignature', settings.emailSignature, '', 'Email signature');
-  resetIf('certificateSignatory', settings.certificateSignatory, '', 'Certificate signatory');
-  resetIf('certificateSignatoryTitle', settings.certificateSignatoryTitle, '', 'Signatory title');
-  resetIf('timezone', settings.timezone, DEFAULTS.timezone, 'Time zone');
+  }
 
-  // The seed gave the installing admin a job title and hire date for the story; take them back if untouched.
+  // The seed gave the admin who loaded it a job title and hire date for the story; take them back if both are untouched.
+  // The hire date is matched to within a day, so the database's time zone can't shift it off the match.
   const { rows: storyRows } = await zite.sql({
-    query: `SELECT id::text AS id FROM "People" WHERE "title" = $1 AND created_at <= $2::timestamptz AND NOT (LOWER("email") ~ ${EXAMPLE_EMAIL})`,
-    params: [SEED_ADMIN_TITLE, at],
+    query: `SELECT id::text AS id FROM "People"
+            WHERE "title" = $1 AND "hireDate"::date BETWEEN $2::date - 1 AND $2::date + 1
+              AND created_at <= $3::timestamptz AND NOT (LOWER("email") ~ ${EXAMPLE_EMAIL})`,
+    params: [SEED_ADMIN.title, seedAdminHireDate(at), at],
   });
   const storyPeople = storyRows.map(r => String(r.id));
   if (storyPeople.length) resetLabels.push(storyPeople.includes(actorId) ? 'The demo job title on your profile' : 'The demo job title on the installing admin’s profile');
@@ -325,8 +370,8 @@ export async function removeDemoData(actorId: string, { dryRun = false, budgetMs
 
   if (!dryRun && done) {
     await write(storyPeople, id => zite.people.update({ id, record: { title: null, hireDate: null } }));
-    // Last write of all: once seededAt moves, the demo is officially gone and this can't run again.
-    if (done) await withRetry(() => zite.settings.update({ id: settings.id, record: { ...reset, seededAt: DEMO_REMOVED_MARKER } as never }));
+    // Last write of all: once seededAt is cleared, the demo is officially gone and this can't run again.
+    if (done) await withRetry(() => zite.settings.update({ id: settings.id, record: { ...reset, seededAt: null } as never }));
   }
 
   return { dryRun, done, removed, tables, detached, reset: resetLabels };

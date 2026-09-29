@@ -44,9 +44,10 @@ Two apps share one database:
 | **Learning Management** | `apps/learning-management` | Admins and instructors: build courses and paths, enroll people, grade, run sessions, report on compliance | Internal (organization members) |
 | **Learner Portal** | `apps/learner-portal` | Learners and their managers: take courses, register for sessions, earn certificates, follow their team's progress | External (public, with sign-in) |
 
-It opens on a populated demo: Fernwood Supply Co., with 39 people, 12 courses, 4
-learning paths and a year of history, so every screen has something in it the
-first time you look. Settings has a one-click way to delete all of it.
+A new install starts empty. To look around first, **Settings → Data → Load sample
+data** fills it with a made-up company, Fernwood Supply Co., with 39 people, 12
+courses, 4 learning paths and a year of history. The screenshots here are of that
+sample, and the same page removes it again.
 
 <p align="center">
   <img alt="The admin console: active learners, completions, on-time rate, and everything that needs a person" src=".github/assets/admin-home.png">
@@ -119,8 +120,8 @@ first time you look. Settings has a one-click way to delete all of it.
 - **Settings.** Organization and logo, the learner academy (name, headline, brand
   colour, who can sign in, and whether self-enrollment, discussions and the
   leaderboard are on), categories, reminder timing, eleven email templates with merge
-  tags and test sends, certificate title and signatory, your profile, and removing the
-  demo data.
+  tags and test sends, certificate title and signatory, your profile, and loading or
+  removing the sample data.
 
 - **Daily reminders.** A scheduled job (14:00 UTC) sends due-date and overdue
   reminders, a weekly digest to managers of overdue reports, certificate-expiry
@@ -186,9 +187,11 @@ claude mcp add --transport http zite https://mcp.zite.com/mcp
 >    resolves.
 > 6. `check_app` both apps, `commit`, then `publish_app` both.
 
-**3. Open the admin app.** It seeds the demo on first load. When you are ready for
-real data, go to **Settings → Data → Remove demo data**, which deletes everything the
-seed created and keeps anything you have added since.
+**3. Open the admin app.** It opens empty, and the first person in becomes its
+admin. To try it with data first, use **Settings → Data → Load sample data**, which
+is offered until the workspace has a course, learning path or live session of its
+own. **Remove demo data** on the same page deletes everything the sample created and
+keeps everything else, whether you added it before loading the sample or after.
 
 <details>
 <summary>Setting it up for your own organization</summary>

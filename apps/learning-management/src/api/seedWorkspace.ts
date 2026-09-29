@@ -4,21 +4,27 @@ import { zite } from 'zitejs/db';
 import { gradeQuiz, parseQuizSettings, type QuizAnswers, type QuizSettings } from '@project/shared/lessons';
 import { addMonthsIso, courseProgress, pathProgress, slugify } from '@project/shared/progress';
 import { formatLongDay } from '@project/shared/merge';
-import { DEFAULT_TEMPLATES } from '@project/shared/server/email';
+import { ensureDefaultTemplates } from '@project/shared/server/email';
 import { colorFor, getActor } from '@project/shared/server/people';
 import { getSettings } from '@project/shared/server/settings';
-import { chunked, eachWrite } from '@project/shared/server/sql';
+import { chunked, day, eachWrite, str, withRetry } from '@project/shared/server/sql';
+import { DEMO_ORG_FIELDS, hasRealContent, SEED_ADMIN, sampleLoaded } from '../server/demo';
 import { CATEGORIES, COURSES, PATHS, THREADS, type SeedCourse, type SeedLesson } from '../seed/content';
 import { ASSIGNMENTS, DEMO_ORG, emailFor, FEEDBACK_BANK, GROUPS, PEOPLE, REVIEWS, RULES, SELF_ENROLLED, SESSIONS, type SeedPerson } from '../seed/org';
 
 /**
- * Build the demo academy the first time an admin opens the app: Fernwood
- * Supply Co. with ~40 people, 12 courses, 4 learning paths, assignment rules
- * and a year of realistic history — completions, recertifications, overdue
- * stragglers, quiz attempts, assignments waiting to be graded, certificates,
- * live sessions and lesson Q&A.
+ * Load the sample academy when an admin asks for it from Settings → Data:
+ * Fernwood Supply Co. with ~40 people, 12 courses, 4 learning paths,
+ * assignment rules and a year of realistic history (completions,
+ * recertifications, overdue stragglers, quiz attempts, assignments waiting to
+ * be graded, certificates, live sessions and lesson Q&A).
  *
- * Idempotent: does nothing once `seededAt` is set or any course exists.
+ * Nothing calls this automatically. It refuses while the sample is loaded or
+ * once the workspace has courses, learning paths or live sessions of its own
+ * (see `server/demo.ts`), so a second call can never load it twice. People,
+ * groups and categories that already exist are left alone, and organization
+ * details are only filled in where they still read the default.
+ *
  * Deterministic (seeded PRNG) apart from row ids, so every install tells the
  * same story. Progress values are derived with the same functions the engine
  * uses, so the numbers agree with what recompute would produce.
@@ -57,23 +63,21 @@ type Plan = {
 };
 
 export default createEndpoint({
-  description: 'Load the demo academy the first time the admin app is opened',
+  description: 'Load the sample academy into an empty workspace, when an admin asks for it',
   authenticated: true,
   inputSchema: z.object({}),
-  outputSchema: z.object({ created: z.boolean(), counts: z.record(z.string(), z.number()) }),
+  outputSchema: z.object({ counts: z.record(z.string(), z.number()) }),
   execute: async ({ context }) => {
     const actor = await getActor(context);
-    if (actor.role !== 'Admin') throw new ZiteError('Only an admin can set up the demo academy', 'FORBIDDEN');
+    if (actor.role !== 'Admin') throw new ZiteError('Only an admin can load the sample data', 'FORBIDDEN');
     const settings = await getSettings();
-    if (settings.seededAt) return { created: false, counts: {} };
-    const { rows: existing } = await zite.sql({ query: `SELECT (SELECT COUNT(*) FROM "Courses") AS "courseTotal"`, params: [] });
-    if (Number(existing[0]?.courseTotal ?? 0) > 0) return { created: false, counts: {} };
+    if (sampleLoaded(settings)) throw new ZiteError('The sample data is already loaded. Remove it from Settings → Data before loading it again.', 'CONFLICT');
+    if (await hasRealContent()) throw new ZiteError('Sample data can only be loaded into an empty workspace, and this one already has courses, learning paths or live sessions.', 'CONFLICT');
 
     const NOW = Date.now();
-    await zite.settings.update({
-      id: settings.id,
-      record: { ...DEMO_ORG, seededAt: new Date(NOW).toISOString(), signInPolicy: 'Invited only', selfEnrollment: true, leaderboardEnabled: true, discussionsEnabled: true, reminderDaysBefore: 3, escalateOverdue: true, defaultStaffRole: 'Instructor', certificateTitle: 'Certificate of Completion' },
-    });
+    // Organization details take the demo's values only where nobody has changed the default.
+    const org = Object.fromEntries(DEMO_ORG_FIELDS.filter(f => settings[f.key] === f.unset).map(f => [f.key, DEMO_ORG[f.key]]));
+    await withRetry(() => zite.settings.update({ id: settings.id, record: { ...org, seededAt: new Date(NOW).toISOString() } }));
 
     const rand = prng(20260914);
     const between = (min: number, max: number) => min + rand() * (max - min);
@@ -118,10 +122,13 @@ export default createEndpoint({
 
     // ── People ────────────────────────────────────────────────────────────
     const personId = new Map<string, string>([['me', actor.id]]);
-    const meSeed: SeedPerson = { key: 'me', name: actor.name, title: 'Chief Operating Officer', role: 'Admin', groups: ['hq', 'leaders'], manager: null, hireDaysAgo: 2600, diligence: 0.85 };
+    const meSeed: SeedPerson = { key: 'me', name: actor.name, title: SEED_ADMIN.title, role: 'Admin', groups: ['hq', 'leaders'], manager: null, hireDaysAgo: SEED_ADMIN.hireDaysAgo, diligence: 0.85 };
     const allPeople = [meSeed, ...PEOPLE];
     const personByKey = new Map(allPeople.map(p => [p.key, p]));
-    await zite.people.update({ id: actor.id, record: { title: 'Chief Operating Officer', hireDate: dayAgo(2600), lastLearnedAt: ago(1) } });
+    // The story's COO gets a job title and hire date, unless the admin already gave themselves either.
+    const { rows: meRows } = await zite.sql({ query: `SELECT "title", "hireDate" FROM "People" WHERE id::text = $1`, params: [actor.id] });
+    const storyProfile = !str(meRows[0]?.title) && !day(meRows[0]?.hireDate) ? { title: SEED_ADMIN.title, hireDate: dayAgo(SEED_ADMIN.hireDaysAgo) } : {};
+    await withRetry(() => zite.people.update({ id: actor.id, record: { ...storyProfile, lastLearnedAt: ago(1) } }));
 
     let remaining = [...PEOPLE];
     while (remaining.length) {
@@ -250,7 +257,8 @@ export default createEndpoint({
     const pathId = new Map(PATHS.map((p, i) => [p.key, pathIds[i]]));
     await bulk('pathCourses', PATHS.flatMap(p => p.courses.map((c, i) => ({ pathId: pathId.get(p.key)!, courseId: courseId.get(c)!, position: i, optional: false }))));
 
-    await bulk('emailTemplates', DEFAULT_TEMPLATES.map((t, i) => ({ ...t, position: i })));
+    // Normally already there from the first load; created here only if this runs before it.
+    await ensureDefaultTemplates();
 
     const ruleIds = await bulk(
       'assignmentRules',
@@ -751,7 +759,7 @@ export default createEndpoint({
       { name: 'Stalled for 2+ weeks', ownerId: actor.id, scope: 'Personal', page: 'enrollments', config: JSON.stringify({ filters: { inactiveDays: 14, statuses: ['In progress'] }, ordering: 'activity_desc', groupBy: 'none' }), position: 2 },
     ]);
 
-    return { created: true, counts };
+    return { counts };
   },
 });
 

@@ -3,11 +3,12 @@ import { ArrowRight, Check, CircleCheck, Database, Download, FileCheck2, Link2Of
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { clearDemoData, type ClearDemoDataOutputType } from 'zitejs/api';
+import { clearDemoData, seedWorkspace, type ClearDemoDataOutputType } from 'zitejs/api';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { cn } from '@project/components/lib/utils';
 import { errorMessage } from '../../lib/errors';
+import { useAppActions } from '../../lib/app-actions';
 import { plural } from '../../lib/format';
 import { useWorkspace } from '../../lib/workspace';
 import { ProgressBar } from '../primitives/bits';
@@ -127,7 +128,7 @@ function RemoveDemo() {
   const pct = Math.min(1, run.removed / total);
 
   return (
-    <SettingsSection title="Remove demo data" description="This workspace opened with a sample company — Fernwood Supply Co. — so every screen had something in it. Remove it when you’re ready to use your own training data.">
+    <SettingsSection title="Remove demo data" description="The sample company, Fernwood Supply Co., is loaded in this workspace. Remove it when you’re ready to use your own training data.">
       <SettingsCard>
         <div className="space-y-5 p-4 sm:p-5">
           <div>
@@ -161,7 +162,7 @@ function RemoveDemo() {
             </div>
             <ul className="space-y-1 text-[13.5px] text-muted-foreground">
               <li className="flex gap-2"><Check className="mt-0.5 h-3 w-3 shrink-0" /> You ({ws.me.email}) and everyone who isn’t a Fernwood demo person.</li>
-              <li className="flex gap-2"><Check className="mt-0.5 h-3 w-3 shrink-0" /> Anything created since the demo was set up — courses, people, groups and their enrollments. Only rows attached to demo records (like a new enrollment in a demo course) go with them.</li>
+              <li className="flex gap-2"><Check className="mt-0.5 h-3 w-3 shrink-0" /> Anything created before the demo was loaded or since: courses, people, groups and their enrollments. Only rows attached to demo records (like a new enrollment in a demo course) go with them.</li>
               <li className="flex gap-2"><Check className="mt-0.5 h-3 w-3 shrink-0" /> Email templates, including your edits, and your logo.</li>
               {data && data.reset.length > 0 && (
                 <li className="flex gap-2"><RotateCcw className="mt-0.5 h-3 w-3 shrink-0" /> <span>Still showing the demo’s values, so reset to neutral defaults: {data.reset.join(', ').toLowerCase().replace(/^./, c => c.toUpperCase())}.</span></li>
@@ -219,24 +220,51 @@ function RemoveDemo() {
   );
 }
 
+/**
+ * Offered only while the sample isn't loaded and the workspace has no courses,
+ * learning paths or live sessions (the seed endpoint enforces the same rule),
+ * so it goes away for good once real training exists. Removal takes its place
+ * while the sample is in.
+ */
+function LoadSample() {
+  const qc = useQueryClient();
+  const app = useAppActions();
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    const ok = await app.confirm({
+      title: 'Load sample data?',
+      description: 'This adds Fernwood Supply Co., a made-up company with 39 people, 12 courses, 4 learning paths and a year of enrollments, progress and certificates. You can remove it later from this page.',
+      confirmLabel: 'Load sample data',
+    });
+    if (!ok) return;
+    setLoading(true);
+    try {
+      await seedWorkspace({});
+      await qc.invalidateQueries();
+      toast.success('Sample data loaded', { description: 'You can remove it from this page when you’re done with it.' });
+    } catch (e) {
+      toast.error(errorMessage(e, "Couldn't load the sample data"));
+      void qc.invalidateQueries();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="Sample data" description="Fill this empty workspace with a made-up company to see how everything works.">
+      <Button size="sm" variant="outline" className="h-8" disabled={loading} onClick={() => void load()}>
+        {loading && <Loader2 className="animate-spin" />} {loading ? 'Loading sample data…' : 'Load sample data'}
+      </Button>
+    </SettingsSection>
+  );
+}
+
 export function DataSettings() {
   const ws = useWorkspace();
   return (
     <>
-      <SettingsPageTitle title="Data" description="The demo company, getting your training records out, and where your data lives." />
-
-      {ws.demo ? (
-        <RemoveDemo />
-      ) : (
-        <SettingsSection title="Demo data">
-          <SettingsCard>
-            <div className="flex items-center gap-3 px-4 py-3.5 text-[14px] text-muted-foreground">
-              <CircleCheck className="h-4 w-4 shrink-0 text-tone-success" />
-              No demo data here — everything in this workspace is yours.
-            </div>
-          </SettingsCard>
-        </SettingsSection>
-      )}
+      <SettingsPageTitle title="Data" description={ws.demo ? 'The demo company, getting your training records out, and where your data lives.' : 'Getting your training records out, and where your data lives.'} />
 
       <SettingsSection title="Export">
         <SettingsCard>
@@ -271,6 +299,8 @@ export function DataSettings() {
           </div>
         </SettingsCard>
       </SettingsSection>
+
+      {ws.demo ? <RemoveDemo /> : ws.canLoadSample ? <LoadSample /> : null}
     </>
   );
 }

@@ -2,7 +2,7 @@ import { Email } from 'zitejs/email';
 import { zite } from 'zitejs/db';
 import { firstName, renderMerge, type MergeContext } from '../merge';
 import { learnLink, type OrgSettings } from './settings';
-import { str } from './sql';
+import { str, withRetry } from './sql';
 
 /**
  * Email to learners, managers and staff, through Zite's email integration.
@@ -124,7 +124,21 @@ export async function emailPerson(input: {
   });
 }
 
-/** The starting set of templates. Seeded on install and restorable from Settings. */
+/**
+ * Give a new workspace the default emails, so invitations, assignments and
+ * reminders go out from the first day. Only an empty table is filled: after
+ * that, a switched-off template stays off, and a trigger added in a later
+ * version waits for an admin to set it up in Settings. Returns whether it
+ * created anything.
+ */
+export async function ensureDefaultTemplates(): Promise<boolean> {
+  const { rows } = await zite.sql({ query: `SELECT 1 AS "found" FROM "EmailTemplates" LIMIT 1`, params: [] });
+  if (rows.length) return false;
+  await withRetry(() => zite.emailTemplates.bulkCreate({ records: DEFAULT_TEMPLATES.map((t, i) => ({ ...t, position: i })) }));
+  return true;
+}
+
+/** The starting set of templates. Created on a new workspace's first load and restorable from Settings. */
 export const DEFAULT_TEMPLATES: Array<{ name: string; trigger: TemplateTrigger; subject: string; body: string; enabled: boolean }> = [
   {
     name: 'Invitation',

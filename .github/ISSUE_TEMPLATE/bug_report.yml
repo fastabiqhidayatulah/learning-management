@@ -47,7 +47,7 @@ body:
       options:
         - The demo data, untouched
         - The demo data, with my own changes on top
-        - My own data, demo removed
+        - My own data, demo never loaded or removed
     validations:
       required: true
 

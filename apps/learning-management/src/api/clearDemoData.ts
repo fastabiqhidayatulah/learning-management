@@ -6,7 +6,8 @@ import { inputError } from '../server/settings-admin';
 
 /**
  * Take the Fernwood demo out of a workspace that's ready for real use. See
- * `server/demo.ts` for what counts as demo; anything created since stays.
+ * `server/demo.ts` for what counts as demo; anything created before it was
+ * loaded, or since, stays.
  *
  * `dryRun` counts what would go without deleting anything. A real run works
  * for up to ~25 seconds per call and returns `done: false` when there's more,
