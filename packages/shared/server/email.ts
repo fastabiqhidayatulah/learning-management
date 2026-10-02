@@ -1,6 +1,7 @@
 import { Email } from 'zitejs/email';
 import { zite } from 'zitejs/db';
 import { firstName, renderMerge, type MergeContext } from '../merge';
+import { isDemo } from './demoPreview';
 import { learnLink, type OrgSettings } from './settings';
 import { str, withRetry } from './sql';
 
@@ -132,6 +133,7 @@ export async function emailPerson(input: {
  * created anything.
  */
 export async function ensureDefaultTemplates(): Promise<boolean> {
+  if (isDemo()) return false;
   const { rows } = await zite.sql({ query: `SELECT 1 AS "found" FROM "EmailTemplates" LIMIT 1`, params: [] });
   if (rows.length) return false;
   await withRetry(() => zite.emailTemplates.bulkCreate({ records: DEFAULT_TEMPLATES.map((t, i) => ({ ...t, position: i })) }));

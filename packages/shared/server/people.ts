@@ -1,6 +1,7 @@
 import { ZiteError } from 'zitejs/backend';
 import { zite } from 'zitejs/db';
 import { parseIdList } from '../progress';
+import { DEMO_EMAIL, DEMO_ID, isDemo } from './demoPreview';
 import { getSettings, type OrgSettings } from './settings';
 import { colorFor } from '../palette';
 
@@ -80,6 +81,8 @@ export async function findPersonByEmail(email: string): Promise<PersonRow | unde
 
 const SEEN_EVERY_MS = 10 * 60 * 1000;
 
+const PERSON_COLUMNS = `p.id, p."name", p."email", p."role", p."status", p."managerId", p."lastSeenAt", p."lastLearnedAt"`;
+
 function toActor(row: PersonRow, email: string, created = false): Actor {
   return {
     id: String(row.id),
@@ -109,9 +112,10 @@ export async function getActor(context: { user?: UserLike }): Promise<Actor> {
     if (row.status === 'Invited') patch.status = 'Active';
     const seen = row.lastSeenAt ? Date.parse(String(row.lastSeenAt)) : 0;
     if (Date.now() - seen > SEEN_EVERY_MS) patch.lastSeenAt = new Date().toISOString();
-    if (Object.keys(patch).length) await zite.people.update({ id: String(row.id), record: patch as never });
+    if (Object.keys(patch).length && !isDemo(context)) await zite.people.update({ id: String(row.id), record: patch as never });
     return toActor({ ...row, status: (patch.status as string) ?? row.status }, email);
   }
+  if (isDemo(context)) return demoStaff(context);
 
   const { name, image } = await profileFor(context, email);
   const { rows: admins } = await zite.sql({ query: `SELECT 1 FROM "People" WHERE "role" = 'Admin' AND COALESCE("status", '') <> 'Deactivated' LIMIT 1`, params: [] });
@@ -121,6 +125,32 @@ export async function getActor(context: { user?: UserLike }): Promise<Actor> {
     record: { name, email, role, status: 'Active', color: colorFor(email), avatarUrl: image, lastSeenAt: now },
   });
   return { id: created.id, name, email, role, status: 'Active', managerId: null, created: true };
+}
+
+/**
+ * The demo's visitor matches no one, and its read-only database can't add them,
+ * so they act as the workspace's first admin (or first instructor), and as an
+ * in-memory admin when there is no staff yet.
+ */
+async function demoStaff(context: { user?: UserLike }): Promise<Actor> {
+  const { rows } = await zite.sql({
+    query: `SELECT ${PERSON_COLUMNS} FROM "People" p WHERE p."role" IN ('Admin', 'Instructor') AND COALESCE(p."status", '') <> 'Deactivated' ORDER BY (p."role" = 'Admin') DESC, p.created_at ASC, p.id ASC LIMIT 1`,
+    params: [],
+  });
+  const row = rows[0] as PersonRow | undefined;
+  if (row) return toActor(row, normaliseEmail(row.email));
+  return { id: DEMO_ID, name: context.user?.firstName || 'Demo User', email: DEMO_EMAIL, role: 'Admin', status: 'Active', managerId: null, created: false };
+}
+
+/** The demo's visitor sees the academy as one sample learner: the oldest who has enrollments, so the pages have something to show. */
+async function demoLearner(): Promise<Actor | null> {
+  const { rows } = await zite.sql({
+    query: `SELECT ${PERSON_COLUMNS} FROM "People" p WHERE p."role" = 'Learner' AND COALESCE(p."status", '') <> 'Deactivated'
+      ORDER BY EXISTS (SELECT 1 FROM "Enrollments" e WHERE e."personId" = p.id::text) DESC, (p."status" = 'Active') DESC, p.created_at ASC, p.id ASC LIMIT 1`,
+    params: [],
+  });
+  const row = rows[0] as PersonRow | undefined;
+  return row ? toActor(row, normaliseEmail(row.email)) : null;
 }
 
 export type LearnerAccess = { ok: true; actor: Actor } | { ok: false; reason: 'signed_out' | 'not_invited' | 'deactivated'; email: string | null };
@@ -141,8 +171,12 @@ export async function resolveLearner(context: { user?: UserLike }, settings?: Or
     if (row.status === 'Invited') patch.status = 'Active';
     const seen = row.lastLearnedAt ? Date.parse(String(row.lastLearnedAt)) : 0;
     if (Date.now() - seen > SEEN_EVERY_MS) patch.lastLearnedAt = new Date().toISOString();
-    if (Object.keys(patch).length) await zite.people.update({ id: String(row.id), record: patch as never });
+    if (Object.keys(patch).length && !isDemo(context)) await zite.people.update({ id: String(row.id), record: patch as never });
     return { ok: true, actor: toActor({ ...row, status: (patch.status as string) ?? row.status }, email) };
+  }
+  if (isDemo(context)) {
+    const persona = await demoLearner();
+    return persona ? { ok: true, actor: persona } : { ok: false, reason: 'not_invited', email };
   }
   const s = settings ?? (await getSettings());
   const domain = email.split('@')[1] ?? '';

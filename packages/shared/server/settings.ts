@@ -1,4 +1,5 @@
 import { zite } from 'zitejs/db';
+import { DEMO_ID, isDemo } from './demoPreview';
 import { iso, num, str } from './sql';
 
 /**
@@ -96,24 +97,25 @@ function toSettings(r: Record<string, unknown>): OrgSettings {
 export async function getSettings(): Promise<OrgSettings> {
   const { rows } = await zite.sql({ query: `SELECT * FROM "Settings" ORDER BY created_at ASC LIMIT 1`, params: [] });
   if (rows[0]) return toSettings(rows[0]);
-  const created = await zite.settings.create({
-    record: {
-      organizationName: DEFAULTS.organizationName,
-      brandColor: DEFAULTS.brandColor,
-      academyName: DEFAULTS.academyName,
-      academyHeadline: DEFAULTS.academyHeadline,
-      academyIntro: DEFAULTS.academyIntro,
-      signInPolicy: DEFAULTS.signInPolicy,
-      selfEnrollment: true,
-      leaderboardEnabled: true,
-      discussionsEnabled: true,
-      defaultStaffRole: DEFAULTS.defaultStaffRole,
-      reminderDaysBefore: DEFAULTS.reminderDaysBefore,
-      escalateOverdue: true,
-      certificateTitle: DEFAULTS.certificateTitle,
-      timezone: DEFAULTS.timezone,
-    },
-  });
+  const record = {
+    organizationName: DEFAULTS.organizationName,
+    brandColor: DEFAULTS.brandColor,
+    academyName: DEFAULTS.academyName,
+    academyHeadline: DEFAULTS.academyHeadline,
+    academyIntro: DEFAULTS.academyIntro,
+    signInPolicy: DEFAULTS.signInPolicy,
+    selfEnrollment: true,
+    leaderboardEnabled: true,
+    discussionsEnabled: true,
+    defaultStaffRole: DEFAULTS.defaultStaffRole,
+    reminderDaysBefore: DEFAULTS.reminderDaysBefore,
+    escalateOverdue: true,
+    certificateTitle: DEFAULTS.certificateTitle,
+    timezone: DEFAULTS.timezone,
+  };
+  // The demo's database is read-only and refuses the whole request on any write.
+  if (isDemo()) return toSettings({ id: DEMO_ID, ...record });
+  const created = await zite.settings.create({ record });
   return toSettings(created as unknown as Record<string, unknown>);
 }
 
@@ -128,7 +130,8 @@ function currentAppUrl() {
  */
 export async function rememberLearnUrl(settings: OrgSettings) {
   const url = currentAppUrl();
-  if (!url || url === settings.learnUrl) return settings;
+  // Never store the demo's host: emails would link to it, and its database is read-only.
+  if (!url || url === settings.learnUrl || isDemo()) return settings;
   // Editor previews run on preview hosts; only the live URL is worth keeping.
   if (/sandbox|preview|editor|localhost/i.test(url) && settings.learnUrl) return settings;
   await zite.settings.update({ id: settings.id, record: { learnUrl: url } });
@@ -137,7 +140,7 @@ export async function rememberLearnUrl(settings: OrgSettings) {
 
 export async function rememberAdminUrl(settings: OrgSettings) {
   const url = currentAppUrl();
-  if (!url || url === settings.adminAppUrl) return settings;
+  if (!url || url === settings.adminAppUrl || isDemo()) return settings;
   if (/sandbox|preview|editor|localhost/i.test(url) && settings.adminAppUrl) return settings;
   await zite.settings.update({ id: settings.id, record: { adminAppUrl: url } });
   return { ...settings, adminAppUrl: url };

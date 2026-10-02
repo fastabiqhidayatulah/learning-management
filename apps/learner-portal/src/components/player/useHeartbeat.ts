@@ -15,7 +15,8 @@ export function useHeartbeat(slug: string, lessonId: string | undefined, enabled
   const qc = useQueryClient();
 
   useEffect(() => {
-    if (!enabled || !lessonId) return;
+    // The demo's database is read-only and refuses the whole request on any write.
+    if (!enabled || !lessonId || (window as { __ziteDemo?: unknown }).__ziteDemo) return;
     let pending = 0;
     let last = Date.now();
     let visible = document.visibilityState === 'visible';

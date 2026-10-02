@@ -35,8 +35,11 @@ export const qk = {
   settingsRoot: ['settings'] as const,
 };
 
+/** A refusal (no access, the demo's read-only database) won't change on retry, so the boot screen shows it at once. */
+const retryUnlessRefused = (count: number, error: unknown) => count < 2 && !/\b4\d\d\b|FORBIDDEN|UNAUTHORIZED|DEMO_READ_ONLY/.test(String((error as Error)?.message ?? error));
+
 export function useBootstrap() {
-  return useQuery({ queryKey: qk.bootstrap, queryFn: () => bootstrap({}), staleTime: 60_000, refetchOnWindowFocus: true });
+  return useQuery({ queryKey: qk.bootstrap, queryFn: () => bootstrap({}), staleTime: 60_000, refetchOnWindowFocus: true, retry: retryUnlessRefused });
 }
 
 /** A missing record won't appear on retry; everything else (network, 5xx) gets a couple more tries. */
