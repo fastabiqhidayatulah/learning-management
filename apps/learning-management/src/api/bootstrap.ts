@@ -50,6 +50,7 @@ const Output = z.object({
       certificateSignatory: z.string(),
       certificateSignatoryTitle: z.string(),
       timezone: z.string(),
+      defaultLocale: z.enum(['en', 'id']),
       learnUrl: z.string().nullable(),
     }),
     staff: z.array(z.object({ id: z.string(), name: z.string(), email: z.string(), role: z.string(), status: z.string(), color: z.string(), avatarUrl: z.string().nullable(), title: z.string().nullable(), lastSeenAt: z.string().nullable() })),
@@ -112,6 +113,7 @@ export default createEndpoint({
       certificateSignatory: settings.certificateSignatory,
       certificateSignatoryTitle: settings.certificateSignatoryTitle,
       timezone: settings.timezone,
+      defaultLocale: settings.defaultLocale,
       learnUrl: settings.learnUrl,
     };
 

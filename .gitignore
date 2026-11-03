@@ -5,3 +5,13 @@ dist
 __zite__*
 vite.review.config.ts
 package-lock.json
+
+# Build server self-host
+apps/server/dist
+apps/server/src/.generated
+packages/runtime/schema.sql
+
+# --- agent/tooling artifacts (ignored) ---
+.opencode/
+.commandcode/
+/.hallmark/

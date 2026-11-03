@@ -6,6 +6,7 @@ import {
 } from '@project/components/ui/alert-dialog';
 import { Sheet, SheetContent, SheetTitle } from '@project/components/ui/sheet';
 import { cn } from '@project/components/lib/utils';
+import { LocaleProvider, isLocale } from '@project/shared/i18n';
 import { AppActionsContext, type AppActions, type ConfirmOptions, type EnrollIntent } from '../../lib/app-actions';
 import { useHotkeys } from '../../lib/hotkeys';
 import { useTheme } from '../../lib/theme';
@@ -177,6 +178,7 @@ export function AppShell() {
   const closeDialog = (o: boolean) => !o && setDialog(null);
 
   return (
+    <LocaleProvider locale={isLocale(ws.settings.defaultLocale) ? ws.settings.defaultLocale : undefined}>
     <AppActionsContext.Provider value={actions}>
       <div className="flex h-[100dvh] overflow-hidden bg-canvas">
         <aside className={cn('hidden shrink-0 overflow-hidden transition-[width] duration-200 md:block', collapsed ? 'w-0' : 'w-[240px]')}>
@@ -228,5 +230,6 @@ export function AppShell() {
         />
       </div>
     </AppActionsContext.Provider>
+    </LocaleProvider>
   );
 }

@@ -262,6 +262,15 @@
             "type": "url",
             "template": {}
           }
+        },
+        {
+          "id": "fldDefaultLocale01",
+          "sdkName": "defaultLocale",
+          "definition": {
+            "name": "Default Locale",
+            "type": "single_line_text",
+            "template": {}
+          }
         }
       ]
     },

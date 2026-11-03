@@ -35,6 +35,8 @@ export type OrgSettings = {
   certificateSignatory: string;
   certificateSignatoryTitle: string;
   timezone: string;
+  /** Bahasa default organisasi: 'id' atau 'en'. */
+  defaultLocale: 'en' | 'id';
   learnUrl: string | null;
   adminAppUrl: string | null;
   seededAt: string | null;
@@ -42,17 +44,21 @@ export type OrgSettings = {
 
 export const DEFAULT_BRAND = '#2f6b55';
 
+/** Zona waktu default: Indonesia (WIB). */
+export const DEFAULT_TIMEZONE = 'Asia/Jakarta';
+
 export const DEFAULTS = {
-  organizationName: 'Your Organization',
+  organizationName: 'Organisasi Anda',
   brandColor: DEFAULT_BRAND,
-  academyName: 'Academy',
-  academyHeadline: 'Learn something new today',
-  academyIntro: 'Courses, learning paths and live sessions from your team. Pick up where you left off, or explore the catalog.',
+  academyName: 'Akademi',
+  academyHeadline: 'Pelajari hal baru hari ini',
+  academyIntro: 'Kursus, jalur pembelajaran, dan sesi langsung dari tim Anda. Lanjutkan dari tempat Anda berhenti, atau jelajahi katalog.',
   signInPolicy: 'Invited only' as SignInPolicy,
   defaultStaffRole: 'Instructor' as const,
   reminderDaysBefore: 3,
-  certificateTitle: 'Certificate of Completion',
-  timezone: 'America/New_York',
+  certificateTitle: 'Sertifikat Penyelesaian',
+  timezone: DEFAULT_TIMEZONE,
+  defaultLocale: 'id' as const,
 };
 
 export function parseDomains(raw: unknown): string[] {
@@ -88,6 +94,7 @@ function toSettings(r: Record<string, unknown>): OrgSettings {
     certificateSignatory: str(r.certificateSignatory) ?? '',
     certificateSignatoryTitle: str(r.certificateSignatoryTitle) ?? '',
     timezone: str(r.timezone) || DEFAULTS.timezone,
+    defaultLocale: r.defaultLocale === 'en' ? 'en' : 'id',
     learnUrl: blank(r.learnUrl),
     adminAppUrl: blank(r.adminAppUrl),
     seededAt: iso(r.seededAt),
@@ -112,6 +119,7 @@ export async function getSettings(): Promise<OrgSettings> {
     escalateOverdue: true,
     certificateTitle: DEFAULTS.certificateTitle,
     timezone: DEFAULTS.timezone,
+    defaultLocale: DEFAULTS.defaultLocale,
   };
   // The demo's database is read-only and refuses the whole request on any write.
   if (isDemo()) return toSettings({ id: DEMO_ID, ...record });

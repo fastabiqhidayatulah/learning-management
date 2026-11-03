@@ -29,6 +29,7 @@ export const settingsSchema = z.object({
   certificateSignatory: z.string(),
   certificateSignatoryTitle: z.string(),
   timezone: z.string(),
+  defaultLocale: z.enum(['en', 'id']),
   learnUrl: z.string().nullable(),
 });
 
@@ -58,6 +59,7 @@ export function settingsPayload(s: OrgSettings): SettingsPayload {
     certificateSignatory: s.certificateSignatory,
     certificateSignatoryTitle: s.certificateSignatoryTitle,
     timezone: s.timezone,
+    defaultLocale: s.defaultLocale,
     learnUrl: s.learnUrl,
   };
 }

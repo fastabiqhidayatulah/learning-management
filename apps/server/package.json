@@ -1,0 +1,21 @@
+{
+  "name": "@project/server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Server HTTP self-host: melayani SPA + menjalankan 97 endpoint di atas PostgreSQL lokal.",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "optionalDependencies": {
+    "nodemailer": "^6.9.16"
+  }
+}

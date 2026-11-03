@@ -38,19 +38,25 @@
         "./.zite/api.ts"
       ],
       "zitejs/auth": [
-        "../../node_modules/zitejs/dist/esm/auth/index.d.ts"
-      ],
-      "zitejs/auth/server": [
-        "../../node_modules/zitejs/dist/esm/auth/server.d.ts"
+        "../../packages/runtime/auth.tsx"
       ],
       "zitejs/backend": [
-        "./.zite/backend.ts"
+        "../../packages/runtime/backend.ts"
       ],
       "zitejs/backend/base": [
-        "../../node_modules/zitejs/dist/esm/backend/index.d.ts"
+        "../../packages/runtime/backend.ts"
       ],
       "zitejs/caller": [
-        "../../node_modules/zitejs/dist/esm/caller/index.d.ts"
+        "../../packages/runtime/caller.ts"
+      ],
+      "zitejs/runtime": [
+        "../../packages/runtime/client.ts"
+      ],
+      "zitejs/upload": [
+        "../../packages/runtime/upload.ts"
+      ],
+      "zitejs/pdf": [
+        "../../packages/runtime/pdf.ts"
       ],
       "zitejs/integrations": [
         "./.zite/integrations/airtable.ts"

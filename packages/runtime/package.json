@@ -1,0 +1,24 @@
+{
+  "name": "@project/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Runtime lokal pengganti platform Zite (db, backend, auth, caller, upload, pdf, email).",
+  "exports": {
+    "./backend": "./backend.ts",
+    "./base": "./backend.ts",
+    "./client": "./client.ts",
+    "./caller": "./caller.ts",
+    "./auth": "./auth.tsx",
+    "./pdf": "./pdf.ts",
+    "./upload": "./upload.ts",
+    "./email": "./email.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  }
+}

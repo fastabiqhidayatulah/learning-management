@@ -1,10 +1,11 @@
 import {
-  Award, BarChart3, BookOpen, CalendarClock, ChevronRight, ClipboardCheck, ExternalLink, GraduationCap, Home, Inbox, Keyboard, Laptop, Layers, MessagesSquare, Moon, Plus, Route, Search, Settings, Sun, UserPlus, Users, UsersRound, Workflow,
+  Award, BarChart3, BookOpen, CalendarClock, Check, ChevronRight, ClipboardCheck, ExternalLink, GraduationCap, Home, Inbox, Keyboard, Languages, Laptop, Layers, MessagesSquare, Moon, Plus, Route, Search, Settings, Sun, UserPlus, Users, UsersRound, Workflow,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@project/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@project/components/ui/dropdown-menu';
 import { cn } from '@project/components/lib/utils';
+import { LOCALES, useT } from '@project/shared/i18n';
 import { useAppActions } from '../../lib/app-actions';
 import { MOD } from '../../lib/hotkeys';
 import { useTheme } from '../../lib/theme';
@@ -107,6 +108,7 @@ function SectionHeader({ label, open, onToggle, action }: { label: string; open:
 
 function CourseBlock({ courseId, onNavigate }: { courseId: string; onNavigate?: () => void }) {
   const ws = useWorkspace();
+  const { t } = useT();
   const c = ws.courseById.get(courseId);
   const location = useLocation();
   const [open, toggle] = useStoredToggle(`course:${courseId}`, false);
@@ -120,15 +122,15 @@ function CourseBlock({ courseId, onNavigate }: { courseId: string; onNavigate?: 
           <span className={cn('truncate', inCourse && 'font-medium text-sidebar-accent-foreground')}>{c.title}</span>
         </NavLink>
         {c.status !== 'Published' && <span className="ml-1 text-2xs text-muted-foreground">{c.status}</span>}
-        <button type="button" onClick={toggle} aria-label={open ? `Collapse ${c.title}` : `Expand ${c.title}`} className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground">
+        <button type="button" onClick={toggle} aria-label={open ? t('common.collapse', { title: c.title }) : t('common.expand', { title: c.title })} className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground">
           <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
         </button>
       </div>
       {open && (
         <div className="mt-px space-y-px">
-          <Item indent to={`/courses/${c.id}/content`} icon={<BookOpen />} label="Content" onNavigate={onNavigate} />
-          <Item indent to={`/courses/${c.id}/learners`} icon={<Users />} label="Learners" count={c.counts.enrolled || null} onNavigate={onNavigate} />
-          <Item indent to={`/courses/${c.id}/settings`} icon={<Settings />} label="Settings" onNavigate={onNavigate} />
+          <Item indent to={`/courses/${c.id}/content`} icon={<BookOpen />} label={t('nav.content')} onNavigate={onNavigate} />
+          <Item indent to={`/courses/${c.id}/learners`} icon={<Users />} label={t('nav.learners')} count={c.counts.enrolled || null} onNavigate={onNavigate} />
+          <Item indent to={`/courses/${c.id}/settings`} icon={<Settings />} label={t('nav.settings')} onNavigate={onNavigate} />
         </div>
       )}
     </div>
@@ -138,6 +140,7 @@ function CourseBlock({ courseId, onNavigate }: { courseId: string; onNavigate?: 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const ws = useWorkspace();
   const app = useAppActions();
+  const { t, locale, setLocale } = useT();
   const { resolved, toggle, setPref } = useTheme();
   const [workspaceOpen, toggleWorkspace] = useStoredToggle('workspace');
   const [viewsOpen, toggleViews] = useStoredToggle('views');
@@ -193,8 +196,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <DropdownMenuItem className="text-[14px]" onSelect={() => setPref('system')}>
               <Laptop className="h-3.5 w-3.5" /> Match system theme
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="text-[14px]">
+                <Languages className="h-3.5 w-3.5" /> {t('menu.language')}
+                <span className="ml-auto text-sm text-muted-foreground">{LOCALES.find(l => l.value === locale)?.short}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {LOCALES.map(l => (
+                  <DropdownMenuItem key={l.value} className="text-[14px]" onSelect={() => setLocale(l.value)}>
+                    {l.label}
+                    {locale === l.value && <Check className="ml-auto h-3.5 w-3.5" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem className="text-[14px]" onSelect={() => app.openShortcuts()}>
-              <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts <span className="ml-auto"><Kbd>?</Kbd></span>
+              <Keyboard className="h-3.5 w-3.5" /> {t('menu.shortcuts')} <span className="ml-auto"><Kbd>?</Kbd></span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -241,32 +259,32 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="min-h-0 flex-1 space-y-px overflow-y-auto px-2 pb-4" aria-label="Main">
-        <Item to="/home" icon={<Home />} label="Home" onNavigate={onNavigate} />
-        <Item to="/inbox" icon={<Inbox />} label="Inbox" count={ws.counts.inboxUnread} onNavigate={onNavigate} />
-        <Item to="/grading" icon={<ClipboardCheck />} label="Grading" count={ws.counts.toGrade} accent={ws.counts.toGrade > 0} onNavigate={onNavigate} />
-        <Item to="/discussions" icon={<MessagesSquare />} label="Discussions" count={ws.counts.openQuestions} onNavigate={onNavigate} />
+        <Item to="/home" icon={<Home />} label={t('nav.home')} onNavigate={onNavigate} />
+        <Item to="/inbox" icon={<Inbox />} label={t('nav.inbox')} count={ws.counts.inboxUnread} onNavigate={onNavigate} />
+        <Item to="/grading" icon={<ClipboardCheck />} label={t('nav.grading')} count={ws.counts.toGrade} accent={ws.counts.toGrade > 0} onNavigate={onNavigate} />
+        <Item to="/discussions" icon={<MessagesSquare />} label={t('nav.discussions')} count={ws.counts.openQuestions} onNavigate={onNavigate} />
 
         <div className="pt-4">
-          <SectionHeader label="Workspace" open={workspaceOpen} onToggle={toggleWorkspace} />
+          <SectionHeader label={t('nav.workspace')} open={workspaceOpen} onToggle={toggleWorkspace} />
           {workspaceOpen && (
             <div className="space-y-px">
-              <Item to="/courses" icon={<BookOpen />} label="Courses" onNavigate={onNavigate} />
-              <Item to="/paths" icon={<Route />} label="Learning paths" onNavigate={onNavigate} />
+              <Item to="/courses" icon={<BookOpen />} label={t('nav.courses')} onNavigate={onNavigate} />
+              <Item to="/paths" icon={<Route />} label={t('nav.paths')} onNavigate={onNavigate} />
               {/* Sidebar counts mean "needs you" (inbox, grading, questions); upcoming sessions are not a to-do. */}
-              <Item to="/sessions" icon={<CalendarClock />} label="Live sessions" onNavigate={onNavigate} />
-              <Item to="/people" icon={<Users />} label="People" onNavigate={onNavigate} />
-              <Item to="/groups" icon={<UsersRound />} label="Groups" onNavigate={onNavigate} />
-              <Item to="/enrollments" icon={<Layers />} label="Enrollments" onNavigate={onNavigate} />
-              <Item to="/assignments" icon={<Workflow />} label="Assignment rules" onNavigate={onNavigate} />
-              <Item to="/certificates" icon={<Award />} label="Certificates" onNavigate={onNavigate} />
-              <Item to="/reports" icon={<BarChart3 />} label="Reports" onNavigate={onNavigate} />
+              <Item to="/sessions" icon={<CalendarClock />} label={t('nav.sessions')} onNavigate={onNavigate} />
+              <Item to="/people" icon={<Users />} label={t('nav.people')} onNavigate={onNavigate} />
+              <Item to="/groups" icon={<UsersRound />} label={t('nav.groups')} onNavigate={onNavigate} />
+              <Item to="/enrollments" icon={<Layers />} label={t('nav.enrollments')} onNavigate={onNavigate} />
+              <Item to="/assignments" icon={<Workflow />} label={t('nav.assignments')} onNavigate={onNavigate} />
+              <Item to="/certificates" icon={<Award />} label={t('nav.certificates')} onNavigate={onNavigate} />
+              <Item to="/reports" icon={<BarChart3 />} label={t('nav.reports')} onNavigate={onNavigate} />
             </div>
           )}
         </div>
 
         {ws.views.length > 0 && (
           <div className="pt-4">
-            <SectionHeader label="Views" open={viewsOpen} onToggle={toggleViews} />
+            <SectionHeader label={t('nav.views')} open={viewsOpen} onToggle={toggleViews} />
             {viewsOpen && (
               <div className="space-y-px">
                 {ws.views.map(v => (
@@ -279,7 +297,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         {recent.length > 0 && (
           <div className="pt-4">
-            <SectionHeader label="Recent courses" open={recentOpen} onToggle={toggleRecent} />
+            <SectionHeader label={t('nav.recentCourses')} open={recentOpen} onToggle={toggleRecent} />
             {recentOpen && (
               <div className="space-y-px">
                 {recent.map(id => (
